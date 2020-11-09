@@ -1,4 +1,4 @@
-module utils
+module github.com/tmsong/utils
 
 go 1.15
 

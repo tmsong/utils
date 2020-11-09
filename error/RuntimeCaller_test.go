@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"utils/runtimecaller"
+	"github.com/tmsong/utils/runtimecaller"
 )
 
 func TestRuntimeCaller(t *testing.T) {
