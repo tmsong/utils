@@ -1,4 +1,4 @@
-package logevent
+package pathvalue
 
 import (
 	"testing"
