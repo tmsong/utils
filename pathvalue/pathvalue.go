@@ -1,11 +1,11 @@
 package pathvalue
 
 import (
+	lru "github.com/hashicorp/golang-lru"
 	"reflect"
 	"strconv"
 	"strings"
-
-	lru "github.com/hashicorp/golang-lru"
+	"sync"
 )
 
 type pathtoken struct {
@@ -16,22 +16,57 @@ type pathtoken struct {
 
 const defaultCacheSize = 200
 
-var cache *lru.Cache
+var staticCacheState int32 //=0表示没有，=1表示有，需要从map里读一下试试
+var staticCacheMu sync.Mutex
+
+const (
+	staticCacheNotReady = 0
+	staticCacheReady    = 1
+)
+
+var staticCache map[string][]pathtoken //静态缓存，如果读取的key绝大多数都已知，可以在程序初始化阶段提前set好再开始
+var dynamicCache *lru.Cache
 
 func init() {
 	var err error
-	cache, err = lru.New(defaultCacheSize)
+	dynamicCache, err = lru.New(defaultCacheSize)
+	if err != nil {
+		panic(err)
+	}
+	staticCache = make(map[string][]pathtoken)
+}
+
+func InitByCacheSize(size int) {
+	var err error
+	dynamicCache, err = lru.New(size)
 	if err != nil {
 		panic(err)
 	}
 }
 
-func InitByCacheSize(size int) {
-	var err error
-	cache, err = lru.New(size)
-	if err != nil {
-		panic(err)
+//手动添加静态缓存
+func SetPathToStaticCache(paths ...string) bool {
+	staticCacheMu.Lock()
+	defer staticCacheMu.Unlock()
+	if staticCacheState == staticCacheReady {
+		return false
 	}
+	for _, path := range paths {
+		tokens := compilePath(path)
+		staticCache[path] = tokens
+	}
+	return true
+}
+
+//手动结束添加，调用之后无法再添加
+func FinishStaticCache() bool {
+	staticCacheMu.Lock()
+	defer staticCacheMu.Unlock()
+	if staticCacheState == staticCacheReady {
+		return false
+	}
+	staticCacheState = staticCacheReady
+	return true
 }
 
 func getPathArrayToken(path string) []pathtoken {
@@ -82,12 +117,18 @@ func compilePath(path string) []pathtoken {
 
 func compilePathWithCache(path string) []pathtoken {
 	var tokens []pathtoken
-	cachedTokens, ok := cache.Get(path)
+	var ok bool
+	if staticCacheState == staticCacheReady {
+		if tokens, ok = staticCache[path]; ok {
+			return tokens
+		}
+	}
+	cachedTokens, ok := dynamicCache.Get(path)
 	if ok {
 		tokens = cachedTokens.([]pathtoken)
 	} else {
 		tokens = compilePath(path)
-		cache.Add(path, tokens)
+		dynamicCache.Add(path, tokens)
 	}
 	return tokens
 }
